@@ -6,41 +6,52 @@ import { Link } from "react-router-dom";
 import { format } from "date-fns";
 import { pl } from "date-fns/locale";
 import { visitTypeLabels, visitStatusLabels, Visit } from "@/types/patient";
+import { useEffect, useState } from 'react';
+import apiClient from '@/lib/apiClient';
 
-// Mock data
-const upcomingVisits: Visit[] = [
-  {
-    id: '1',
-    patientId: 'p1',
-    patient: { id: 'p1', firstName: 'Jan', lastName: 'Kowalski', pesel: '90010112345', birthDate: '1990-01-01', phone: '123456789' },
-    doctorId: 'd1',
-    date: format(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
-    time: '10:00',
-    duration: 30,
-    type: 'consultation',
-    status: 'scheduled',
-    reason: 'Konsultacja ogólna'
-  },
-  {
-    id: '2',
-    patientId: 'p1',
-    patient: { id: 'p1', firstName: 'Jan', lastName: 'Kowalski', pesel: '90010112345', birthDate: '1990-01-01', phone: '123456789' },
-    doctorId: 'd2',
-    date: format(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
-    time: '14:30',
-    duration: 20,
-    type: 'follow-up',
-    status: 'scheduled',
-    reason: 'Wizyta kontrolna'
-  }
-];
+const doctorInfo: Record<string, { name: string; specialization: string }> = {};
 
-const doctorInfo: Record<string, { name: string; specialization: string }> = {
-  'd1': { name: 'dr Anna Nowak', specialization: 'Internista' },
-  'd2': { name: 'dr Piotr Wiśniewski', specialization: 'Kardiolog' }
-};
-
+// Load upcoming visits for logged-in patient
+// Uses endpoint: GET /appointment/patient/:patient_id/upcoming
 const PatientDashboard = () => {
+  const [upcomingVisits, setUpcomingVisits] = useState<Visit[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const session = await (await import('@/lib/session')).ensureSession();
+        if (!session || !session.patient_id) return;
+        const patientId = session.patient_id;
+        const res = await apiClient.get(`/appointment/patient/${patientId}/upcoming`);
+        if (res && res.status === 'success') {
+          const appts = res.appointments || [];
+          const enriched = await Promise.all(appts.map(async (a: any) => {
+            let doctor = null;
+            try {
+              const d = await apiClient.get(`/doctor/${a.doctor_id}`);
+              doctor = d.doctor;
+            } catch (e) { doctor = null; }
+            const dateObj = new Date(a.appointment_date);
+            return {
+              id: String(a.id),
+              patientId: String(a.patient_id),
+              patient: { id: String(a.patient_id), firstName: '', lastName: '' },
+              doctorId: String(a.doctor_id),
+              date: dateObj.toISOString().slice(0,10),
+              time: dateObj.toTimeString().slice(0,5),
+              duration: a.duration || 30,
+              type: 'consultation',
+              status: a.status || 'scheduled',
+              reason: a.notes || ''
+            } as Visit;
+          }));
+          setUpcomingVisits(enriched);
+        }
+      } catch (e) { console.error(e); }
+    };
+    load();
+  }, []);
+ 
   return (
     <div className="space-y-6">
       <div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { format, startOfWeek, addDays, isSameDay } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from 'lucide-react';
@@ -10,17 +10,9 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
-// Mock schedule data
-const mockScheduleItems = [
-  { id: '1', date: new Date(), time: '08:00', duration: 30, patient: 'Anna Nowak', type: 'consultation' },
-  { id: '2', date: new Date(), time: '08:30', duration: 30, patient: 'Piotr Wiśniewski', type: 'follow-up' },
-  { id: '3', date: new Date(), time: '09:00', duration: 45, patient: 'Maria Kowalczyk', type: 'procedure' },
-  { id: '4', date: new Date(), time: '10:00', duration: 30, patient: 'Tomasz Zieliński', type: 'consultation' },
-  { id: '5', date: new Date(), time: '10:30', duration: 30, patient: 'Katarzyna Dąbrowska', type: 'consultation' },
-  { id: '6', date: addDays(new Date(), 1), time: '09:00', duration: 30, patient: 'Jan Kowalski', type: 'consultation' },
-  { id: '7', date: addDays(new Date(), 1), time: '10:00', duration: 60, patient: 'Ewa Mazur', type: 'procedure' },
-  { id: '8', date: addDays(new Date(), 2), time: '08:00', duration: 30, patient: 'Marek Pawlak', type: 'follow-up' },
-];
+import apiClient from '@/lib/apiClient';
+
+// We'll load doctor availability from backend: GET /availability/doctor/:doctorId
 
 const hours = Array.from({ length: 10 }, (_, i) => `${8 + i}:00`);
 
@@ -39,6 +31,34 @@ const getTypeColor = (type: string) => {
 
 export default function DoctorSchedule() {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [scheduleItems, setScheduleItems] = useState<any[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const session = await (await import('@/lib/session')).ensureSession();
+        if (!session || !session.doctor_id) return;
+        const doctorId = session.doctor_id;
+        const res = await apiClient.get(`/availability/doctor/${doctorId}`);
+        if (res && res.status === 'success') {
+          const avail = res.availability || [];
+          const items = avail.map((a: any) => {
+            const start = new Date(a.start_time);
+            return {
+              id: String(a.id || a.availability_id || ''),
+              date: start,
+              time: start.toTimeString().slice(0,5),
+              duration: Math.round((new Date(a.end_time).getTime() - start.getTime())/60000) || 30,
+              patient: a.patient_name || '',
+              type: 'consultation',
+            };
+          });
+          setScheduleItems(items);
+        }
+      } catch (e) { console.error(e); }
+    };
+    load();
+  }, []);
   const weekStart = startOfWeek(currentDate, { weekStartsOn: 1 });
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
@@ -51,7 +71,7 @@ export default function DoctorSchedule() {
   };
 
   const getItemsForDay = (date: Date) => {
-    return mockScheduleItems.filter(item => isSameDay(item.date, date));
+    return scheduleItems.filter(item => isSameDay(item.date, date));
   };
 
   return (

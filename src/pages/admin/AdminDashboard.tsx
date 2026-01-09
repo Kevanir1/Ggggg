@@ -3,7 +3,6 @@ import { AdminLayout } from '@/components/layout/AdminLayout';
 import { FileText, Users, BookOpen, Activity, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-// Mock stats
 const stats = {
   pendingApplications: 5,
   totalUsers: 234,

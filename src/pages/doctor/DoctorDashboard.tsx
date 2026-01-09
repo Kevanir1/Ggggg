@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import { 
@@ -23,104 +23,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils';
 import { Visit, visitTypeLabels, visitStatusLabels } from '@/types/patient';
 
-// Mock data for demonstration
-const mockVisits: Visit[] = [
-  {
-    id: '1',
-    patientId: 'p1',
-    patient: {
-      id: 'p1',
-      firstName: 'Anna',
-      lastName: 'Nowak',
-      pesel: '85042512345',
-      birthDate: '1985-04-25',
-      phone: '+48 600 123 456',
-    },
-    doctorId: 'd1',
-    date: format(new Date(), 'yyyy-MM-dd'),
-    time: '08:00',
-    duration: 30,
-    type: 'consultation',
-    status: 'completed',
-    reason: 'Ból w klatce piersiowej'
-  },
-  {
-    id: '2',
-    patientId: 'p2',
-    patient: {
-      id: 'p2',
-      firstName: 'Piotr',
-      lastName: 'Wiśniewski',
-      pesel: '78112234567',
-      birthDate: '1978-11-22',
-      phone: '+48 601 234 567',
-    },
-    doctorId: 'd1',
-    date: format(new Date(), 'yyyy-MM-dd'),
-    time: '08:30',
-    duration: 30,
-    type: 'follow-up',
-    status: 'in-progress',
-    reason: 'Kontrola po zawale'
-  },
-  {
-    id: '3',
-    patientId: 'p3',
-    patient: {
-      id: 'p3',
-      firstName: 'Maria',
-      lastName: 'Kowalczyk',
-      pesel: '92030567890',
-      birthDate: '1992-03-05',
-      phone: '+48 602 345 678',
-    },
-    doctorId: 'd1',
-    date: format(new Date(), 'yyyy-MM-dd'),
-    time: '09:00',
-    duration: 45,
-    type: 'procedure',
-    status: 'scheduled',
-    reason: 'EKG wysiłkowe'
-  },
-  {
-    id: '4',
-    patientId: 'p4',
-    patient: {
-      id: 'p4',
-      firstName: 'Tomasz',
-      lastName: 'Zieliński',
-      pesel: '88071234567',
-      birthDate: '1988-07-12',
-      phone: '+48 603 456 789',
-    },
-    doctorId: 'd1',
-    date: format(new Date(), 'yyyy-MM-dd'),
-    time: '10:00',
-    duration: 30,
-    type: 'consultation',
-    status: 'scheduled',
-    reason: 'Nadciśnienie'
-  },
-  {
-    id: '5',
-    patientId: 'p5',
-    patient: {
-      id: 'p5',
-      firstName: 'Katarzyna',
-      lastName: 'Dąbrowska',
-      pesel: '95051890123',
-      birthDate: '1995-05-18',
-      phone: '+48 604 567 890',
-    },
-    doctorId: 'd1',
-    date: format(new Date(), 'yyyy-MM-dd'),
-    time: '10:30',
-    duration: 30,
-    type: 'consultation',
-    status: 'scheduled',
-    reason: 'Arytmia'
-  },
-];
+import apiClient from '@/lib/apiClient';
+
+// Visits will be loaded from backend; map DB appointments -> simplified Visit shape
 
 const getStatusColor = (status: Visit['status']) => {
   switch (status) {
@@ -156,7 +61,56 @@ const getTypeColor = (type: Visit['type']) => {
 
 export default function DoctorDashboard() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [visits] = useState<Visit[]>(mockVisits);
+  const [visits, setVisits] = useState<Visit[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const session = await (await import('@/lib/session')).ensureSession();
+        if (!session || !session.doctor_id) return;
+        const doctorId = session.doctor_id;
+
+        const res = await apiClient.get(`/appointment/doctor/${doctorId}`);
+        if (res && res.status === 'success') {
+          const appointments = res.appointments || [];
+          // enrich with patient details
+          const enriched = await Promise.all(appointments.map(async (a: any) => {
+            let patient = null;
+            try {
+              const p = await apiClient.get(`/patient/${a.patient_id}`);
+              patient = p.patient || null;
+            } catch (e) {
+              patient = null;
+            }
+            const dateObj = new Date(a.appointment_date);
+            return {
+              id: String(a.id),
+              patientId: String(a.patient_id),
+              patient: patient ? {
+                id: String(patient.id),
+                firstName: patient.first_name || '',
+                lastName: patient.last_name || '',
+                pesel: patient.pesel || '',
+                birthDate: patient.birth_date || '',
+                phone: patient.phone || '',
+              } : { id: String(a.patient_id), firstName: 'Anon', lastName: '', pesel: '', birthDate: '', phone: '' },
+              doctorId: String(a.doctor_id),
+              date: dateObj.toISOString().slice(0,10),
+              time: dateObj.toTimeString().slice(0,5),
+              duration: a.duration || 30,
+              type: 'consultation',
+              status: a.status || 'scheduled',
+              reason: a.notes || ''
+            } as Visit;
+          }));
+          setVisits(enriched);
+        }
+      } catch (e) {
+        console.error('Error loading appointments', e);
+      }
+    };
+    load();
+  }, []);
 
   const todayVisits = visits.filter(v => v.date === format(selectedDate, 'yyyy-MM-dd'));
   const completedCount = todayVisits.filter(v => v.status === 'completed').length;
@@ -175,19 +129,18 @@ export default function DoctorDashboard() {
     setSelectedDate(newDate);
   };
 
-  const handleStartVisit = (visitId: string) => {
-    console.log('Starting visit:', visitId);
-    // TODO: Implement visit start logic
+  const handleCompleteVisit = async (visitId: string) => {
+    try {
+      await apiClient.patch(`/appointment/${visitId}/complete`);
+      setVisits(prev => prev.map(v => v.id === visitId ? { ...v, status: 'completed' } : v));
+    } catch (e) { console.error(e); }
   };
 
-  const handleCompleteVisit = (visitId: string) => {
-    console.log('Completing visit:', visitId);
-    // TODO: Implement visit completion logic
-  };
-
-  const handleCancelVisit = (visitId: string) => {
-    console.log('Cancelling visit:', visitId);
-    // TODO: Implement visit cancellation logic
+  const handleCancelVisit = async (visitId: string) => {
+    try {
+      await apiClient.patch(`/appointment/${visitId}/cancel`);
+      setVisits(prev => prev.map(v => v.id === visitId ? { ...v, status: 'cancelled' } : v));
+    } catch (e) { console.error(e); }
   };
 
   return (
@@ -390,13 +343,6 @@ export default function DoctorDashboard() {
                       <div className="flex gap-2 ml-[76px] lg:ml-0">
                         {visit.status === 'scheduled' && (
                           <>
-                            <Button 
-                              size="sm" 
-                              onClick={() => handleStartVisit(visit.id)}
-                            >
-                              <Play className="w-4 h-4 mr-1" />
-                              Rozpocznij
-                            </Button>
                             <Button 
                               variant="outline" 
                               size="sm"

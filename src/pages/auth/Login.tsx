@@ -15,12 +15,7 @@ const loginSchema = z.object({
   password: z.string().min(6, { message: 'Hasło musi mieć minimum 6 znaków' }),
 });
 
-// Mock users for demonstration
-const mockUsers = [
-  { email: 'admin@medapp.pl', password: 'admin123', role: 'admin' as UserRole, isBlocked: false },
-  { email: 'lekarz@medapp.pl', password: 'lekarz123', role: 'doctor' as UserRole, isBlocked: false },
-  { email: 'zablokowany@medapp.pl', password: 'test123', role: 'doctor' as UserRole, isBlocked: true },
-];
+import apiClient, { setAuthToken } from '@/lib/apiClient';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -49,43 +44,29 @@ export default function Login() {
     }
 
     setIsLoading(true);
-
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    // Check credentials
-    const user = mockUsers.find(u => u.email === email.toLowerCase());
-
-    if (!user) {
-      setError({
-        code: 'account_not_found',
-        message: 'Nie znaleziono konta z podanym adresem email'
-      });
+    try {
+      const res = await apiClient.post('/auth/login', { email: email.toLowerCase(), password });
+      if (res && res.status === 'success') {
+        const token = res.token;
+        setAuthToken(token);
+        localStorage.setItem('medapp_token', token);
+        // initialize in-memory session (no domain data stored in localStorage)
+        try {
+          const { ensureSession } = await import('@/lib/session');
+          await ensureSession();
+        } catch (e) {
+          console.error('Session init failed', e);
+        }
+        const redirectPath = roleRedirectPaths[res.role as UserRole] || '/';
+        navigate(redirectPath);
+        return;
+      }
+      setError({ code: 'invalid_credentials', message: res?.message || 'Błąd logowania' });
+    } catch (e: any) {
+      setError({ code: 'invalid_credentials', message: e.message || 'Błąd logowania' });
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    if (user.password !== password) {
-      setError({
-        code: 'invalid_credentials',
-        message: 'Nieprawidłowy email lub hasło'
-      });
-      setIsLoading(false);
-      return;
-    }
-
-    if (user.isBlocked) {
-      setError({
-        code: 'account_blocked',
-        message: 'Twoje konto zostało zablokowane. Skontaktuj się z administratorem.'
-      });
-      setIsLoading(false);
-      return;
-    }
-
-    // Success - redirect based on role
-    const redirectPath = roleRedirectPaths[user.role];
-    navigate(redirectPath);
   };
 
   const getErrorStyle = () => {
