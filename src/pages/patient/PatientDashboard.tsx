@@ -51,8 +51,7 @@ const PatientDashboard = () => {
     };
     load();
   }, []);
-
-const PatientDashboard = () => {
+ 
   return (
     <div className="space-y-6">
       <div>

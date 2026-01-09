@@ -15,6 +15,7 @@ Below is a mapping of frontend UI features to backend endpoints (source file in 
   - Payload: none (Authorization: Bearer <token>)
   - Response: { status: 'success', user_id, role }
   - Backend file: `medical-api/server/controllers/auth.py` (@bp.get('/verify'))
+  - Note: This endpoint currently returns HTTP 500 due to an issue in the backend submodule (attribute access mismatch). The frontend intentionally does not call `/auth/verify` and instead relies on `POST /auth/login` response and `GET /auth/me` to obtain user details.
 
 - Current user
   - Endpoint: `GET /auth/me`

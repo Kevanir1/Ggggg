@@ -19,17 +19,16 @@ export async function ensureSession(): Promise<Session | null> {
   if (_session) return _session;
   const token = localStorage.getItem('medapp_token');
   if (!token) return null;
-
+  // apply token to api client and fetch user info via /auth/me
+  setAuthToken(token);
   try {
-    const verify = await apiClient.get('/auth/verify');
-    if (!verify || verify.status !== 'success') {
-      // invalid token
-      localStorage.removeItem('medapp_token');
-      setAuthToken(null);
+    const me = await apiClient.get('/auth/me');
+    if (!me || me.status !== 'success' || !me.user) {
+      // couldn't fetch user details; do not purge token here (avoid clearing on 500)
       return null;
     }
 
-    const sess: Session = { user_id: verify.user_id, role: verify.role };
+    const sess: Session = { user_id: me.user.id, role: me.user.role };
 
     if (sess.role === 'doctor') {
       try {
@@ -49,15 +48,8 @@ export async function ensureSession(): Promise<Session | null> {
 
     _session = sess;
     return _session;
-  } catch (err: any) {
-    // If API returned 401 or similar, clear token
-    try {
-      const msg = (err && err.message) || '';
-      if (msg.toLowerCase().includes('401') || msg.toLowerCase().includes('unauthorized')) {
-        localStorage.removeItem('medapp_token');
-        setAuthToken(null);
-      }
-    } catch (_) {}
+  } catch (err) {
+    // Do not clear token on server errors; just return null so UI can decide.
     return null;
   }
 }
