@@ -23,3 +23,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local curl payloads
+appointment_payload.json
+auth_payload.json
+patient_auth.json
+
